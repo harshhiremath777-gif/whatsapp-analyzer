@@ -1,61 +1,51 @@
-export const analyzeChat = (messages) => {
+export function analyzeChat(parsedMessages) {
   const stats = {
-    totalMessages: messages.length,
+    totalMessages: 0,
     participants: {},
-    uniqueDays: new Set(),
+    emojiTracker: {},
+    topEmojis: [],
     hourlyActivity: Array(24).fill(0),
-    emojiTracker: {}
-  }
+    totalMedia: 0,
+    monthlyTimeline: {}
+  };
 
-  // A more robust regex for modern emojis
-  const emojiRegex = /\p{Emoji_Presentation}/gu;
-  
-  // Use a Set for instant lookups
-  const modifiersToIgnore = new Set(['🏻', '🏼', '🏽', '🏾', '🏿', '♂', '♀', '️', '‍', '️']);
+  if (!Array.isArray(parsedMessages) || parsedMessages.length === 0) return stats;
+  stats.totalMessages = parsedMessages.length;
 
-  messages.forEach(msg => {
-    // 1. Participant Stats
-    if (msg.sender) {
-      stats.participants[msg.sender] = (stats.participants[msg.sender] || 0) + 1;
+  parsedMessages.forEach(msg => {
+    if (!msg || !msg.message) return;
+
+    stats.participants[msg.sender] = (stats.participants[msg.sender] || 0) + 1;
+    stats.hourlyActivity[msg.hour] += 1;
+
+    if (msg.monthKey) {
+      stats.monthlyTimeline[msg.monthKey] = (stats.monthlyTimeline[msg.monthKey] || 0) + 1;
     }
-    
-    // 2. Date Tracking
-    if (msg.date) stats.uniqueDays.add(msg.date);
 
-    // 3. Time Tracking (Time parsing logic)
-    if (msg.time) {
-      const [timeString, rawModifier] = msg.time.toLowerCase().split(/\s+/);
-      let [hours] = timeString.split(':');
-      hours = parseInt(hours, 10);
+    if (msg.message.toLowerCase().includes('omitted') || msg.message.toLowerCase().includes('attached')) {
+      stats.totalMedia += 1;
+    }
 
-      if (rawModifier === 'pm' && hours < 12) hours += 12;
-      if (rawModifier === 'am' && hours === 12) hours = 0;
+    // Direct unicode point index sequence iteration avoids splitting compound icons down the middle
+    const characters = Array.from(msg.message);
+    characters.forEach(char => {
+      const codePoint = char.codePointAt(0);
+      if (!codePoint) return;
 
-      if (!isNaN(hours) && hours >= 0 && hours <= 23) {
-        stats.hourlyActivity[hours]++;
+      if (
+        (codePoint >= 0x1F300 && codePoint <= 0x1F9FF) || 
+        (codePoint >= 0x1F600 && codePoint <= 0x1F64F) || 
+        (codePoint >= 0x1F680 && codePoint <= 0x1F6FF) || 
+        (codePoint >= 0x2600 && codePoint <= 0x26FF)   || 
+        (codePoint >= 0x2700 && codePoint <= 0x27BF)
+      ) {
+        stats.emojiTracker[char] = (stats.emojiTracker[char] || 0) + 1;
       }
-    }
+    });
+  });
 
-    // 4. Emoji Tracking
-    if (msg.message) {
-      const foundEmojis = msg.message.match(emojiRegex);
-      if (foundEmojis) {
-        foundEmojis.forEach(emoji => {
-          // Only track if it's not a modifier
-          if (!modifiersToIgnore.has(emoji)) {
-            stats.emojiTracker[emoji] = (stats.emojiTracker[emoji] || 0) + 1;
-          }
-        });
-      }
-    }
-  })
-
-  stats.totalDays = stats.uniqueDays.size || 1;
-  stats.avgPerDay = Math.round(stats.totalMessages / stats.totalDays);
-
-  // Sort, slice, and return
   stats.topEmojis = Object.entries(stats.emojiTracker)
-    .sort((a, b) => b[1] - a[1]) 
+    .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
   return stats;
